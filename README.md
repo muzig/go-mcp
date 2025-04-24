@@ -54,33 +54,33 @@ Requires Go 1.18 or higher.
 package main
 
 import (
-	"context"
-	"log"
+ "context"
+ "log"
 
-	"github.com/ThinkInAIXYZ/go-mcp/client"
-	"github.com/ThinkInAIXYZ/go-mcp/transport"
+ "github.com/ThinkInAIXYZ/go-mcp/client"
+ "github.com/ThinkInAIXYZ/go-mcp/transport"
 )
 
 func main() {
-	// Create SSE transport client
-	transportClient, err := transport.NewSSEClientTransport("http://127.0.0.1:8080/sse")
-	if err != nil {
-		log.Fatalf("Failed to create transport client: %v", err)
-	}
+ // Create SSE transport client
+ transportClient, err := transport.NewSSEClientTransport("http://127.0.0.1:8080/sse")
+ if err != nil {
+  log.Fatalf("Failed to create transport client: %v", err)
+ }
 
-	// Initialize MCP client
-	mcpClient, err := client.NewClient(transportClient)
-	if err != nil {
-		log.Fatalf("Failed to create MCP client: %v", err)
-	}
-	defer mcpClient.Close()
+ // Initialize MCP client
+ mcpClient, err := client.NewClient(transportClient)
+ if err != nil {
+  log.Fatalf("Failed to create MCP client: %v", err)
+ }
+ defer mcpClient.Close()
 
-	// Get available tools
-	tools, err := mcpClient.ListTools(context.Background())
-	if err != nil {
-		log.Fatalf("Failed to list tools: %v", err)
-	}
-	log.Printf("Available tools: %+v", tools)
+ // Get available tools
+ tools, err := mcpClient.ListTools(context.Background())
+ if err != nil {
+  log.Fatalf("Failed to list tools: %v", err)
+ }
+ log.Printf("Available tools: %+v", tools)
 }
 ```
 
@@ -90,65 +90,73 @@ func main() {
 package main
 
 import (
-	"fmt"
-	"log"
-	"time"
+ "fmt"
+ "log"
+ "time"
 
-	"github.com/ThinkInAIXYZ/go-mcp/protocol"
-	"github.com/ThinkInAIXYZ/go-mcp/server"
-	"github.com/ThinkInAIXYZ/go-mcp/transport"
+ "github.com/ThinkInAIXYZ/go-mcp/protocol"
+ "github.com/ThinkInAIXYZ/go-mcp/server"
+ "github.com/ThinkInAIXYZ/go-mcp/transport"
 )
 
 type TimeRequest struct {
-	Timezone string `json:"timezone" description:"timezone" required:"true"` // Use field tag to describe input schema
+ Timezone string `json:"timezone" description:"timezone" required:"true"` // Use field tag to describe input schema
 }
 
 func main() {
-	// Create SSE transport server
-	transportServer, err := transport.NewSSEServerTransport("127.0.0.1:8080")
-	if err != nil {
-		log.Fatalf("Failed to create transport server: %v", err)
-	}
+ // Create SSE transport server
+ transportServer, err := transport.NewSSEServerTransport("127.0.0.1:8080")
+ if err != nil {
+  log.Fatalf("Failed to create transport server: %v", err)
+ }
 
-	// Initialize MCP server
-	mcpServer, err := server.NewServer(transportServer)
-	if err != nil {
-		log.Fatalf("Failed to create MCP server: %v", err)
-	}
+ // Initialize MCP server
+ mcpServer, err := server.NewServer(
+ transportServer,
+   // 创建一个每秒5个请求，突发容量为10的限速器
+  server.WithRateLimiter(components.NewTokenBucketLimiter(components.Rate{
+   Limit: 5.0, // 每秒5个请求
+   Burst: 10,  // 最多允许10个请求的突发
+  })),
+ )
+ if err != nil {
+  log.Fatalf("Failed to create MCP server: %v", err)
+ }
 
-	// Register time query tool
-	tool, err := protocol.NewTool("current_time", "Get current time for specified timezone", TimeRequest{})
-	if err != nil {
-		log.Fatalf("Failed to create tool: %v", err)
-		return
-	}
-	mcpServer.RegisterTool(tool, handleTimeRequest)
+ // Register time query tool
+ tool := protocol.NewTool("current_time", "Get current time with timezone, Asia/Shanghai is default",
+  // 为指定工具设置每秒10个请求，突发容量为20的限速器
+  protocol.WithRateLimit(mcpServer.GetLimiter(), components.Rate{
+   Limit: 10.0, // 每秒10个请求
+   Burst: 20,   // 最多允许20个请求的突发
+  }),
+ )
+ err = server.RegisterTool(srv, tool, currentTime)
+ if err != nil {
+  log.Fatalf("Failed to create tool: %v", err)
+  return
+ }
 
-	// Start server
-	if err = mcpServer.Run(); err != nil {
-		log.Fatalf("Server failed to start: %v", err)
-	}
+ // Start server
+ if err = mcpServer.Run(); err != nil {
+  log.Fatalf("Server failed to start: %v", err)
+ }
 }
 
-func handleTimeRequest(req *protocol.CallToolRequest) (*protocol.CallToolResult, error) {
-	var timeReq TimeRequest
-	if err := protocol.VerifyAndUnmarshal(req.RawArguments, &timeReq); err != nil {
-		return nil, err
-	}
+func currentTime(_ context.Context, timeReq *TimeRequest) (*protocol.CallToolResult, error) {
+ loc, err := time.LoadLocation(timeReq.Timezone)
+ if err != nil {
+  return nil, fmt.Errorf("invalid timezone: %v", err)
+ }
 
-	loc, err := time.LoadLocation(timeReq.Timezone)
-	if err != nil {
-		return nil, fmt.Errorf("invalid timezone: %v", err)
-	}
-
-	return &protocol.CallToolResult{
-		Content: []protocol.Content{
-			protocol.TextContent{
-				Type: "text",
-				Text: time.Now().In(loc).String(),
-			},
-		},
-	}, nil
+ return &protocol.CallToolResult{
+  Content: []protocol.Content{
+   protocol.TextContent{
+    Type: "text",
+    Text: time.Now().In(loc).String(),
+   },
+  },
+ }, nil
 }
 ```
 
@@ -158,49 +166,50 @@ func handleTimeRequest(req *protocol.CallToolRequest) (*protocol.CallToolResult,
 package main
 
 import (
-	"context"
-	"log"
+ "context"
+ "log"
 
-	"github.com/ThinkInAIXYZ/go-mcp/protocol"
-	"github.com/ThinkInAIXYZ/go-mcp/server"
-	"github.com/ThinkInAIXYZ/go-mcp/transport"
-	"github.com/gin-gonic/gin"
+ "github.com/ThinkInAIXYZ/go-mcp/protocol"
+ "github.com/ThinkInAIXYZ/go-mcp/server"
+ "github.com/ThinkInAIXYZ/go-mcp/transport"
+ "github.com/gin-gonic/gin"
 )
 
 func main() {
-	messageEndpointURL := "/message"
+ messageEndpointURL := "/message"
 
-	sseTransport, mcpHandler, err := transport.NewSSEServerTransportAndHandler(messageEndpointURL)
-	if err != nil {
-		log.Panicf("new sse transport and hander with error: %v", err)
-	}
+ sseTransport, mcpHandler, err := transport.NewSSEServerTransportAndHandler(messageEndpointURL)
+ if err != nil {
+  log.Panicf("new sse transport and hander with error: %v", err)
+ }
 
-	// new mcp server
-	mcpServer, _ := server.NewServer(sseTransport)
+ // new mcp server
+ mcpServer, _ := server.NewServer(sseTransport)
 
-	// register tool with mcpServer
-	// mcpServer.RegisterTool(tool, toolHandler)
+ // register tool with mcpServer
+ // mcpServer.RegisterTool(tool, toolHandler)
 
-	// start mcp Server
-	go func() {
-		mcpServer.Run()
-	}()
+ // start mcp Server
+ go func() {
+  mcpServer.Run()
+ }()
 
-	defer mcpServer.Shutdown(context.Background())
+ defer mcpServer.Shutdown(context.Background())
 
-	r := gin.Default()
-	r.GET("/sse", func(ctx *gin.Context) {
-		mcpHandler.HandleSSE().ServeHTTP(ctx.Writer, ctx.Request)
-	})
-	r.POST(messageEndpointURL, func(ctx *gin.Context) {
-		mcpHandler.HandleMessage().ServeHTTP(ctx.Writer, ctx.Request)
-	})
+ r := gin.Default()
+ r.GET("/sse", func(ctx *gin.Context) {
+  mcpHandler.HandleSSE().ServeHTTP(ctx.Writer, ctx.Request)
+ })
+ r.POST(messageEndpointURL, func(ctx *gin.Context) {
+  mcpHandler.HandleMessage().ServeHTTP(ctx.Writer, ctx.Request)
+ })
 
-	if err = r.Run(":8080"); err != nil {
-		return
-	}
+ if err = r.Run(":8080"); err != nil {
+  return
+ }
 }
 ```
+
 [Reference：A more complete example](https://github.com/ThinkInAIXYZ/go-mcp/blob/main/examples/http_handler/main.go)
 
 ## 🏗️ Architecture Design
