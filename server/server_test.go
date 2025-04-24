@@ -43,7 +43,7 @@ func TestServerHandle(t *testing.T) {
 		outScan = bufio.NewScanner(out.reader)
 	)
 
-	server, err := NewServer(
+	srv, err := NewServer(
 		transport.NewMockServerTransport(in.reader, out.writer),
 		WithServerInfo(protocol.Implementation{
 			Name:    "ExampleServer",
@@ -54,21 +54,19 @@ func TestServerHandle(t *testing.T) {
 	}
 
 	// add tool
-	testTool, err := protocol.NewTool("test_tool", "test_tool", currentTimeReq{})
-	if err != nil {
-		t.Fatalf("NewTool: %+v", err)
-		return
-	}
+	testTool := protocol.NewTool("test_tool", "test_tool")
 
 	testToolCallContent := protocol.TextContent{
 		Type: "text",
 		Text: "pong",
 	}
-	server.RegisterTool(testTool, func(_ context.Context, _ *protocol.CallToolRequest) (*protocol.CallToolResult, error) {
+	if err := RegisterTool(srv, testTool, func(_ context.Context, _ *currentTimeReq) (*protocol.CallToolResult, error) {
 		return &protocol.CallToolResult{
 			Content: []protocol.Content{testToolCallContent},
 		}, nil
-	})
+	}); err != nil {
+		t.Fatalf("RegisterTool: %+v", err)
+	}
 
 	// add prompt
 	testPrompt := &protocol.Prompt{
@@ -85,7 +83,7 @@ func TestServerHandle(t *testing.T) {
 	testPromptGetResponse := &protocol.GetPromptResult{
 		Description: "test_prompt_description",
 	}
-	server.RegisterPrompt(testPrompt, func(context.Context, *protocol.GetPromptRequest) (*protocol.GetPromptResult, error) {
+	srv.RegisterPrompt(testPrompt, func(context.Context, *protocol.GetPromptRequest) (*protocol.GetPromptResult, error) {
 		return testPromptGetResponse, nil
 	})
 
@@ -100,7 +98,7 @@ func TestServerHandle(t *testing.T) {
 		MimeType: testResource.MimeType,
 		Text:     "test",
 	}
-	server.RegisterResource(testResource, func(context.Context, *protocol.ReadResourceRequest) (*protocol.ReadResourceResult, error) {
+	srv.RegisterResource(testResource, func(context.Context, *protocol.ReadResourceRequest) (*protocol.ReadResourceResult, error) {
 		return &protocol.ReadResourceResult{
 			Contents: []protocol.ResourceContents{
 				testResourceContent,
@@ -113,7 +111,7 @@ func TestServerHandle(t *testing.T) {
 		URITemplate: "file:///{path}",
 		Name:        "test",
 	}
-	if err := server.RegisterResourceTemplate(testResourceTemplate, func(context.Context, *protocol.ReadResourceRequest) (*protocol.ReadResourceResult, error) {
+	if err := srv.RegisterResourceTemplate(testResourceTemplate, func(context.Context, *protocol.ReadResourceRequest) (*protocol.ReadResourceResult, error) {
 		return &protocol.ReadResourceResult{
 			Contents: []protocol.ResourceContents{
 				testResourceContent,
@@ -125,12 +123,12 @@ func TestServerHandle(t *testing.T) {
 	}
 
 	go func() {
-		if err := server.Run(); err != nil {
+		if err := srv.Run(); err != nil {
 			t.Errorf("server start: %+v", err)
 		}
 	}()
 
-	testServerInit(t, server, in.writer, outScan)
+	testServerInit(t, srv, in.writer, outScan)
 
 	tests := []struct {
 		name             string
@@ -288,7 +286,7 @@ func TestServerNotify(t *testing.T) {
 		outScan = bufio.NewScanner(out.reader)
 	)
 
-	server, err := NewServer(
+	srv, err := NewServer(
 		transport.NewMockServerTransport(in.reader, out.writer),
 		WithServerInfo(protocol.Implementation{
 			Name:    "ExampleServer",
@@ -299,11 +297,7 @@ func TestServerNotify(t *testing.T) {
 	}
 
 	// add tool
-	testTool, err := protocol.NewTool("test_tool", "test_tool", currentTimeReq{})
-	if err != nil {
-		t.Fatalf("NewTool: %+v", err)
-		return
-	}
+	testTool := protocol.NewTool("test_tool", "test_tool")
 
 	testToolCallContent := protocol.TextContent{
 		Type: "text",
@@ -345,12 +339,12 @@ func TestServerNotify(t *testing.T) {
 	}
 
 	go func() {
-		if err := server.Run(); err != nil {
+		if err := srv.Run(); err != nil {
 			t.Errorf("server start: %+v", err)
 		}
 	}()
 
-	testServerInit(t, server, in.writer, outScan)
+	testServerInit(t, srv, in.writer, outScan)
 
 	tests := []struct {
 		name           string
@@ -362,11 +356,14 @@ func TestServerNotify(t *testing.T) {
 			name:   "test_tools_changed_notify",
 			method: protocol.NotificationToolsListChanged,
 			f: func() {
-				server.RegisterTool(testTool, func(context.Context, *protocol.CallToolRequest) (*protocol.CallToolResult, error) {
+				if err := RegisterTool(srv, testTool, func(context.Context, *protocol.CallToolRequest) (*protocol.CallToolResult, error) {
 					return &protocol.CallToolResult{
 						Content: []protocol.Content{testToolCallContent},
 					}, nil
-				})
+				}); err != nil {
+					t.Fatalf("RegisterTool: %+v", err)
+					return
+				}
 			},
 			expectedNotify: protocol.NewToolListChangedNotification(),
 		},
@@ -374,7 +371,7 @@ func TestServerNotify(t *testing.T) {
 			name:   "test_prompts_changed_notify",
 			method: protocol.NotificationPromptsListChanged,
 			f: func() {
-				server.RegisterPrompt(testPrompt, func(context.Context, *protocol.GetPromptRequest) (*protocol.GetPromptResult, error) {
+				srv.RegisterPrompt(testPrompt, func(context.Context, *protocol.GetPromptRequest) (*protocol.GetPromptResult, error) {
 					return testPromptGetResponse, nil
 				})
 			},
@@ -384,7 +381,7 @@ func TestServerNotify(t *testing.T) {
 			name:   "test_resources_changed_notify",
 			method: protocol.NotificationResourcesListChanged,
 			f: func() {
-				server.RegisterResource(testResource, func(context.Context, *protocol.ReadResourceRequest) (*protocol.ReadResourceResult, error) {
+				srv.RegisterResource(testResource, func(context.Context, *protocol.ReadResourceRequest) (*protocol.ReadResourceResult, error) {
 					return &protocol.ReadResourceResult{
 						Contents: []protocol.ResourceContents{
 							testResourceContent,
@@ -398,7 +395,7 @@ func TestServerNotify(t *testing.T) {
 			name:   "test_resources_template_changed_notify",
 			method: protocol.NotificationResourcesListChanged,
 			f: func() {
-				if err := server.RegisterResourceTemplate(testResourceTemplate, func(context.Context, *protocol.ReadResourceRequest) (*protocol.ReadResourceResult, error) {
+				if err := srv.RegisterResourceTemplate(testResourceTemplate, func(context.Context, *protocol.ReadResourceRequest) (*protocol.ReadResourceResult, error) {
 					return &protocol.ReadResourceResult{
 						Contents: []protocol.ResourceContents{
 							testResourceContent,

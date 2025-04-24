@@ -320,7 +320,7 @@ func TestVerifyAndUnmarshal(t *testing.T) {
 	}
 
 	// Generate schema for anonymous struct first
-	anonymousStructSchema, _ := generateSchemaFromReqStruct(struct {
+	anonymousStructSchema, _ := GenerateSchemaFromReqStruct(struct {
 		Name   string `json:"name"`
 		Age    int    `json:"age,omitempty"`
 		Active bool   `json:"active"`
@@ -445,7 +445,7 @@ func TestVerifyAndUnmarshal(t *testing.T) {
 			}{},
 		}, true},
 	}
-	_, err := generateSchemaFromReqStruct(testData{})
+	_, err := GenerateSchemaFromReqStruct(testData{})
 	if err != nil {
 		panic(err)
 	}

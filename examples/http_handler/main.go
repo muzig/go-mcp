@@ -38,12 +38,11 @@ func main() {
 		panic(err)
 	}
 
-	tool, err := protocol.NewTool("current_time", "Get current time with timezone, Asia/Shanghai is default", currentTimeReq{})
+	tool := protocol.NewTool("current_time", "Get current time with timezone, Asia/Shanghai is default")
+	err = server.RegisterTool(mcpServer, tool, currentTime)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create tool: %v", err))
 	}
-
-	mcpServer.RegisterTool(tool, currentTime)
 
 	router := http.NewServeMux()
 	router.HandleFunc("/sse", mcpHandler.HandleSSE().ServeHTTP)

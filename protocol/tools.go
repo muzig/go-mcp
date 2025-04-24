@@ -177,17 +177,11 @@ type ToolListChangedNotification struct {
 }
 
 // NewTool create a tool
-func NewTool(name string, description string, inputReqStruct interface{}) (*Tool, error) {
-	schema, err := generateSchemaFromReqStruct(inputReqStruct)
-	if err != nil {
-		return nil, err
-	}
-
+func NewTool(name string, description string) *Tool {
 	return &Tool{
 		Name:        name,
 		Description: description,
-		InputSchema: *schema,
-	}, nil
+	}
 }
 
 func NewToolWithRawSchema(name, description string, schema json.RawMessage) *Tool {

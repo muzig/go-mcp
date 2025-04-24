@@ -33,14 +33,14 @@ func main() {
 	}
 
 	// new protocol tool with name, descipriton and properties
-	tool, err := protocol.NewTool("current_time", "Get current time with timezone, Asia/Shanghai is default", currentTimeReq{})
+	tool := protocol.NewTool("current_time", "Get current time with timezone, Asia/Shanghai is default")
+	err = server.RegisterTool(srv, tool, currentTime)
 	if err != nil {
 		log.Fatalf("Failed to create tool: %v", err)
 		return
 	}
 
 	// register tool and start mcp server
-	srv.RegisterTool(tool, currentTime)
 	// srv.RegisterResource()
 	// srv.RegisterPrompt()
 	// srv.RegisterResourceTemplate()
@@ -89,12 +89,7 @@ func getTransport() (t transport.ServerTransport) {
 	return t
 }
 
-func currentTime(_ context.Context, request *protocol.CallToolRequest) (*protocol.CallToolResult, error) {
-	req := new(currentTimeReq)
-	if err := protocol.VerifyAndUnmarshal(request.RawArguments, &req); err != nil {
-		return nil, err
-	}
-
+func currentTime(_ context.Context, req *currentTimeReq) (*protocol.CallToolResult, error) {
 	loc, err := time.LoadLocation(req.Timezone)
 	if err != nil {
 		return nil, fmt.Errorf("parse timezone with error: %v", err)

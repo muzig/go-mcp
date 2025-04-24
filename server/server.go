@@ -110,16 +110,36 @@ type toolEntry struct {
 	handler ToolHandlerFunc
 }
 
+// ToolHandlerFunc is the type of the function that handles a tool call
 type ToolHandlerFunc func(context.Context, *protocol.CallToolRequest) (*protocol.CallToolResult, error)
 
-func (server *Server) RegisterTool(tool *protocol.Tool, toolHandler ToolHandlerFunc) {
-	server.tools.Store(tool.Name, &toolEntry{tool: tool, handler: toolHandler})
+// ToolHandlerFuncGenerics is the type of the function that handles a tool call with a generic type
+type ToolHandlerFuncGenerics[T any] func(context.Context, T) (*protocol.CallToolResult, error)
+
+// RegisterTool registers a tool with a handler that takes a request of type T
+func RegisterTool[T any](server *Server, tool *protocol.Tool, toolHandler ToolHandlerFuncGenerics[T]) error {
+	if len(tool.RawInputSchema) == 0 {
+		schema, err := protocol.GenerateSchemaFromReqStruct(new(T))
+		if err != nil {
+			return err
+		}
+		tool.InputSchema = *schema
+	}
+
+	server.tools.Store(tool.Name, &toolEntry{tool: tool, handler: func(ctx context.Context, ctr *protocol.CallToolRequest) (*protocol.CallToolResult, error) {
+		var req T
+		if err := protocol.VerifyAndUnmarshal(ctr.RawArguments, &req); err != nil {
+			return nil, err
+		}
+		return toolHandler(ctx, req)
+	}})
 	if !server.sessionManager.IsEmpty() {
 		if err := server.sendNotification4ToolListChanges(context.Background()); err != nil {
 			server.logger.Warnf("send notification toll list changes fail: %v", err)
-			return
+			return nil
 		}
 	}
+	return nil
 }
 
 func (server *Server) UnregisterTool(name string) {
